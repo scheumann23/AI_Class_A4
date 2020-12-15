@@ -3,6 +3,7 @@ import re
 from collections import defaultdict, Counter
 import math
 import copy
+import sys
 
 def train_bayes(train_file):
     file = open(train_file, 'r')
@@ -74,7 +75,7 @@ def train_bayes(train_file):
 
     return loc_word_dict, p_L
 
-def read_test_file(test_file):
+def read_test_file_bayes(test_file):
     file = open(test_file, 'r')
 
     tweets = file.readlines()
@@ -106,3 +107,38 @@ def bayes_test(test_tweet, targets, loc_word_dict, p_L):
     return best_target
 
 
+def predict_bayes(test_text, test_targets, loc_word_dict, p_L, output_file):
+    correct = 0
+    total = 0
+    predictions = []
+    for i in range(len(test_text)):
+        prediction = bayes_test(test_text[i], set(test_targets), loc_word_dict, p_L)
+        predictions.append((prediction, test_targets[i], test_text[i]))
+        total += 1
+        if prediction == test_targets[i]:
+            correct += 1
+
+    f = open(output_file, "w")
+    for line in predictions:
+        for word in line:
+            f.write(word)
+            f.write(' ')
+        f.write('\n')
+        
+    score = correct / total
+    print(score)
+
+
+if __name__ == "__main__":
+    train_or_test = sys.argv[1]
+
+    if train_or_test == 'train':
+        bayes_or_dtree = sys.argv[2]
+        train_file = sys.argv[3]
+        test_file = sys.argv[4]
+        print(f'Training a {bayes_or_dtree} model...')
+    elif train_or_test == 'test':
+        model = sys.argv[2]
+        test_input_file = sys.argv[3]
+        test_output_file = sys.argv[4]
+        print(f'Making predictions using the {bayes_or_dtree} model...')
