@@ -8,7 +8,9 @@ import pickle
 from sklearn.feature_extraction.text import CountVectorizer
 from statistics import mode
 
+# train the Naive Bayes model
 def train_bayes(train_file, model_file):
+    # open the training file and parse it into targets (i.e. locations) and the rest of the text
     file = open(train_file, 'r')
 
     tweets = file.readlines()
@@ -17,6 +19,7 @@ def train_bayes(train_file, model_file):
     targets = [tweet.split()[0] for tweet in tweets]
     text = [tweet.lower().split()[1:] for tweet in tweets]
 
+    # create a dictionary for to track all of the words in a given location
     loc_word_dict = {}
     for i in range(len(targets)):
         for word in text[i]:
@@ -28,6 +31,7 @@ def train_bayes(train_file, model_file):
             else:
                 loc_word_dict[targets[i]] = {word: 1}
 
+    # create another dictionary to track each location the the words show up in 
     word_loc_dict = {}
     for i in range(len(targets)):
         for word in text[i]:
@@ -39,27 +43,33 @@ def train_bayes(train_file, model_file):
             else:
                 word_loc_dict[word] = {targets[i]: 1}
 
+    # create a dictionary that counts how many times each location appears 
     p_L = Counter(targets)
 
+    # convert the loc_word_dict from counts to percentages
     for value in loc_word_dict.values():
         total = sum(value.values())
         for key in value.keys():
             value[key] = value[key] / total
 
+    # narrow down the word_loc_dict dictionary to only words that appear more than 5 times
     word_loc_dict2 = {}
     for key in word_loc_dict.keys():
         if sum(word_loc_dict[key].values()) >= 5:
             word_loc_dict2[key] = word_loc_dict[key]
 
+    # convert from counts to percentages
     for value in word_loc_dict2.values():
         total = sum(value.values())
         for key in value.keys():
             value[key] = [value[key] / total, value[key]]
     
+    # convert from counts to percentages
     total = sum(p_L.values())
     for key in p_L.keys():
         p_L[key] = p_L[key] / total
 
+    # find the top 5 words for each location based on highest P(L|word) and then by highest count
     top_words = {}
     for loc in set(targets):
         words = []
@@ -162,13 +172,18 @@ def read_train_file_dtree(train_file):
         if sum(word_loc_dict[key].values()) >= 20:
             word_loc_dict2[key] = word_loc_dict[key]
 
+    for value in word_loc_dict2.values():
+        total = sum(value.values())
+        for key in value.keys():
+            value[key] = [value[key] / total, value[key]]
+
     top_words = []
     for loc in set(targets):
         words = []
         for word in word_loc_dict2.keys():
             if loc in word_loc_dict2[word].keys():
                 words.append([word, word_loc_dict2[word][loc]])
-        words = sorted(words, key = lambda z: z[1], reverse = True)[0:100]
+        words = sorted(words, key = lambda x: (x[1][0], x[1][1]), reverse = True)[0:50]
         words = [word[0] for word in words]
         top_words += words
 
@@ -258,6 +273,52 @@ def best_split(matrix, labels, word_list):
     return (best_choice, best_choice_index)
 
 
+def read_test_file_dtree(test_file):
+    file = open(test_file, 'r')
+
+    tweets = file.readlines()
+    tweets = [re.sub('\n', '', tweet) for tweet in tweets]
+
+    targets = [tweet.split()[0] for tweet in tweets]
+    text = [re.findall(r'\w\w+', tweet.lower())[1:] for tweet in tweets]
+
+    return (targets, text)
+
+
+def dtree_test(test_tweet, dtree):
+    if isinstance(dtree, str):
+        return dtree
+    else:
+        if dtree['node'] in test_tweet:
+            output = dtree_test(test_tweet, dtree['left'])
+        else:
+            output = dtree_test(test_tweet, dtree['right'])
+    return output
+
+def predict_dtree(test_text, test_targets, dtree, output_file):
+    correct = 0
+    total = 0
+    predictions = []
+    for i in range(len(test_text)):
+        prediction = dtree_test(test_text[i], dtree)
+        predictions.append((prediction, test_targets[i], ' '.join(test_text[i])))
+        total += 1
+        if prediction == test_targets[i]:
+            correct += 1
+
+    f = open(output_file, "w")
+    for line in predictions:
+        for word in line:
+            f.write(word)
+            f.write(' ')
+        f.write('\n')
+    f.close
+        
+    score = correct / total
+    print(score)
+
+
+
 if __name__ == "__main__":
     train_or_test = sys.argv[1]
 
@@ -293,3 +354,7 @@ if __name__ == "__main__":
             p_L = model['p_L']
             test_targets, test_text = read_test_file_bayes(test_input_file)
             predict_bayes(test_text, test_targets, loc_word_dict, p_L, test_output_file)
+        elif bayes_or_dtree == 'dtree':
+            dtree = model['dtree_dict']
+            test_targets, test_text = read_test_file_dtree(test_input_file)
+            predict_dtree(test_text, test_targets, dtree, test_output_file)
