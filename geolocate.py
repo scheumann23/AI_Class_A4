@@ -80,17 +80,20 @@ def train_bayes(train_file, model_file):
         words = [word[0] for word in words]
         top_words[loc] = words
 
+    # print out the top 5 words to the screen 
     for key in top_words.keys():
             ws = ', '.join(top_words[key])
             out = f'The top 5 words for {key} are: {ws}'
             print(out)
     
+    # save the model into a pickle file for testing later
     full_model = {'model_type': 'bayes', 'loc_word_dict': loc_word_dict, 'p_L': p_L}
 
     f = open(model_file, 'wb')
     pickle.dump(full_model, f)
     f.close
 
+# read the testing file and tokenize the tweets
 def read_test_file_bayes(test_file):
     file = open(test_file, 'r')
 
@@ -102,6 +105,7 @@ def read_test_file_bayes(test_file):
 
     return (targets, text)
 
+# calculate the probability of one location 
 def test_one_target(test_tweet, target, loc_word_dict, p_L):
     tokenized_tweet = test_tweet.lower().split()
     score = math.log(p_L[target])
@@ -112,6 +116,7 @@ def test_one_target(test_tweet, target, loc_word_dict, p_L):
             score += math.log(1 / 100000)
     return (target, score)
 
+# cycle through all the possible locations and choose the one with the highest probability
 def bayes_test(test_tweet, targets, loc_word_dict, p_L):
     best_score = -1000000000000000
     best_target = ''
@@ -122,7 +127,7 @@ def bayes_test(test_tweet, targets, loc_word_dict, p_L):
             best_target = pos_target
     return best_target
 
-
+# cycle through all of the test tweets and make predictions
 def predict_bayes(test_text, test_targets, loc_word_dict, p_L, output_file):
     correct = 0
     total = 0
@@ -134,6 +139,7 @@ def predict_bayes(test_text, test_targets, loc_word_dict, p_L, output_file):
         if prediction == test_targets[i]:
             correct += 1
 
+    # save the results to the output file
     f = open(output_file, "w")
     for line in predictions:
         for word in line:
@@ -145,17 +151,19 @@ def predict_bayes(test_text, test_targets, loc_word_dict, p_L, output_file):
     score = correct / total
     print(score)
 
-
+# read in the training file for the dtree algorithm
 def read_train_file_dtree(train_file):
     file = open(train_file, 'r')
 
     tweets = file.readlines()
     tweets = [re.sub('\n', '', tweet) for tweet in tweets]
-
+    
+    # tokenize the tweets 
     targets = [tweet.split()[0] for tweet in tweets]
     text = [' '.join(tweet.split()[1:]) for tweet in tweets]
     text2 = [re.findall(r'\w\w+', tweet.lower())[1:] for tweet in tweets]
 
+    # similar to the Naive Bayes work create a method to pick the best words for each location
     word_loc_dict = {}
     for i in range(len(targets)):
         for word in text2[i]:
@@ -187,9 +195,11 @@ def read_train_file_dtree(train_file):
         words = [word[0] for word in words]
         top_words += words
 
+    # create a matrix representation of the tweets
     cv = CountVectorizer(binary=True)
     X = cv.fit_transform(text)
 
+    # only choose the top words determined above
     top_words = sorted([cv.get_feature_names().index(word) for word in set(top_words) if word in cv.get_feature_names()])
 
     X = X.toarray()[:, top_words]
@@ -198,39 +208,59 @@ def read_train_file_dtree(train_file):
 
     return (X, np.array(targets), word_list)    
 
+# based on: https://stackoverflow.com/questions/3229419/how-to-pretty-print-nested-dictionaries
+def print_dict(d, indent_count=0):
+    if isinstance(d, dict):
+        print('\t' * indent_count + '+ ' + d['node'])
+        if indent_count < 3:
+            print_dict(d['left'], indent_count+1)
+            print_dict(d['right'], indent_count+1)
+    else:
+        print('\t' * indent_count + '+ ' + d)
+    indent_count = 3 
 
+# train the decision tree
 def train_dtree(matrix, labels, word_list, dtree, min_leaves, max_depth, depth = 1):
+    # if only one label remains return that label
     if len(set(labels)) == 1:
         return labels[0]
+    # if we have reached the minimum number of labels in the leaf return the mode of the lables
     elif len(labels) <= min_leaves:
         return mode(labels)
+    # if we have reached the max depth of the tree return the mode of the remaining labels
     elif depth == max_depth:
         return mode(labels)
     else:
+        # determine which label is the best to split one
         split_word, split_word_index = best_split(matrix, labels, word_list)
         dtree['node'] = split_word
         attr = matrix[:,split_word_index]
 
+        # left will mean the tweet has the word, right will mean the tweet does not
+        
         left_filter = [attr == 1]
         right_filter = [attr == 0]
 
+        # split the remaining matrix as well as the labels into two halves
         left_matrix = np.delete(matrix[tuple(left_filter)], split_word_index, axis = 1)
         left_labels = labels[tuple(left_filter)]
 
         right_matrix = np.delete(matrix[tuple(right_filter)], split_word_index, axis = 1)
         right_labels = labels[tuple(right_filter)]
 
+        # remove the split word so it can't be used again
         word_list.pop(split_word_index)
 
         empty_dict_left = {'node': '', 'left': {}, 'right': {}}
         empty_dict_right = {'node': '', 'left': {}, 'right': {}}
 
+        # rerun the whole thing for the left and the right side of the tree
         dtree['left'] = train_dtree(left_matrix, left_labels, word_list, empty_dict_left, min_leaves, max_depth, depth+1)
         dtree['right'] = train_dtree(right_matrix, right_labels, word_list, empty_dict_right, min_leaves, max_depth, depth+1)
 
     return dtree
 
-
+# calculate the entropy after splitting on a given word
 def entropy(attr, labels):
     ones = labels[attr == 1]
     zeroes = labels[attr == 0]
@@ -259,7 +289,7 @@ def entropy(attr, labels):
     
     return total_entropy
 
-
+# determine the best word to split on based on the word that has the lowest entropy
 def best_split(matrix, labels, word_list):
     best_choice = ''
     best_entropy = 1000000000000
@@ -272,7 +302,7 @@ def best_split(matrix, labels, word_list):
             best_choice_index = i
     return (best_choice, best_choice_index)
 
-
+# read in the testing file and tokenize the tweets
 def read_test_file_dtree(test_file):
     file = open(test_file, 'r')
 
@@ -284,10 +314,12 @@ def read_test_file_dtree(test_file):
 
     return (targets, text)
 
-
+# test a single tweet to see how the model would classify it
 def dtree_test(test_tweet, dtree):
+    # if we are at a string that means we have reached a leaf so return the value
     if isinstance(dtree, str):
         return dtree
+    # otherwise keep searching through the tree
     else:
         if dtree['node'] in test_tweet:
             output = dtree_test(test_tweet, dtree['left'])
@@ -295,6 +327,7 @@ def dtree_test(test_tweet, dtree):
             output = dtree_test(test_tweet, dtree['right'])
     return output
 
+# predict the location for all of the tweet, save the output and print the accuracy
 def predict_dtree(test_text, test_targets, dtree, output_file):
     correct = 0
     total = 0
@@ -332,6 +365,7 @@ if __name__ == "__main__":
         elif bayes_or_dtree == 'dtree':
             matrix, labels, word_list = read_train_file_dtree(train_file)
             dtree = train_dtree(matrix, labels, word_list, {'node': '', 'left': {}, 'right': {}}, 10, 10)
+            print_dict(dtree, 0)
             full_model = {'model_type': 'dtree', 'dtree_dict': dtree}
             with open(model_file, 'wb') as f:
                 pickle.dump(full_model, f)
